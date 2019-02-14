@@ -1,0 +1,367 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "Environment": {
+      "type": "string",
+      "defaultValue": "N/A"
+    },
+    "hostingPlanName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "webSiteName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "azureWebJobsDashboardAndStorage": {
+      "type": "securestring",
+      "minLength": 1
+    },
+    "appInsights": {
+      "type": "string",
+      "minLength": 1
+    },
+    "keyVaultId": {
+      "type": "string"
+    },
+    "encryption_certificateName": {
+      "type": "string"
+    },
+    "encryption_keyVaultSecretName": {
+      "type": "string"
+    },
+    "serviceBusNamespaceName": {
+      "type": "string"
+    },
+    "serviceBusTopicName": {
+      "type": "string"
+    },
+    "serviceBusTopicSubscriptionName": {
+      "type": "string"
+    },
+    "skuName": {
+      "type": "string",
+      "defaultValue": "B1",
+      "allowedValues": [
+        "F1",
+        "D1",
+        "B1",
+        "B2",
+        "B3",
+        "S1",
+        "S2",
+        "S3",
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ],
+      "metadata": {
+        "description": "Describes plan's pricing tier and instance size. Check details at https://azure.microsoft.com/en-us/pricing/details/app-service/"
+      }
+    },
+    "skuCapacity": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 1,
+      "metadata": {
+        "description": "Describes plan's instance count"
+      }
+    }
+  },
+  "variables": {},
+  "resources": [
+    {
+      "comments": "Hosting Plan configuration",
+      "apiVersion": "2015-08-01",
+      "name": "[parameters('hostingPlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[resourceGroup().location]",
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "sku": {
+        "name": "[parameters('skuName')]",
+        "capacity": "[parameters('skuCapacity')]"
+      },
+      "properties": {
+        "name": "[parameters('hostingPlanName')]"
+      }
+    },
+    {
+      "comments": "Website configuration",
+      "apiVersion": "2015-08-01",
+      "name": "[parameters('websiteName')]",
+      "type": "Microsoft.Web/sites",
+      "location": "[resourceGroup().location]",
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Web/serverfarms/', parameters('hostingPlanName'))]",
+        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusNamespaceName'))]"
+      ],
+      "properties": {
+        "name": "[parameters('websiteName')]",
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('hostingPlanName'))]",
+        "siteConfig": {
+          "AlwaysOn": true,
+          "connectionStrings": [
+            {
+              "name": "AzureWebJobsDashboard",
+              "connectionString": "[parameters('azureWebJobsDashboardAndStorage')]",
+              "type": 3 /* Custom */
+            },
+            {
+              "name": "AzureWebJobsStorage",
+              "connectionString": "[parameters('azureWebJobsDashboardAndStorage')]",
+              "type": 3 /* Custom */
+            },
+            {
+              "name": "ServiceBus.CustomerServicePublisher",
+              "connectionString": "[listKeys(resourceId(concat('Microsoft.ServiceBus/namespaces/AuthorizationRules'),parameters('serviceBusNamespaceName'),'CustomerServicePublisher'),'2015-08-01').primaryConnectionString]",
+              "type": 3 /* Custom */
+            },
+            {
+              "name": "ServiceBus.CustomerServiceSubscriber",
+              "connectionString": "[listKeys(resourceId(concat('Microsoft.ServiceBus/namespaces/AuthorizationRules'),parameters('serviceBusNamespaceName'),'CustomerServiceSubscriber'),'2015-08-01').primaryConnectionString]",
+              "type": 3 /* Custom */
+            }
+          ]
+        }
+      },
+      "resources": [
+        {
+          "name": "appsettings",
+          "type": "config",
+          "apiVersion": "2015-08-01",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', parameters('websiteName'))]"
+          ],
+          "tags": {
+            "displayName": "appSettings"
+          },
+          "properties": {
+            "WEBSITE_NODE_DEFAULT_VERSION": "6.9.1",
+            "WEBSITE_LOAD_CERTIFICATES": "*",
+            "APPINSIGHTS_INSTRUMENTATIONKEY": "[reference(resourceId('Microsoft.Insights/components', parameters('appInsights')), '2014-04-01').InstrumentationKey]"
+          }
+        }
+      ]
+    },
+    {
+      "comments": "Encryption Certificate configuration",
+      "apiVersion": "2015-08-01",
+      "name": "[parameters('encryption_certificateName')]",
+      "type": "Microsoft.Web/certificates",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[concat('Microsoft.Web/sites/', parameters('websiteName'))]"
+      ],
+      "properties": {
+        "keyVaultId": "[parameters('keyVaultId')]",
+        "keyVaultSecretName": "[parameters('encryption_keyVaultSecretName')]"
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      }
+    },
+    {
+      "comments": "Application Insights configuration",
+      "apiVersion": "2014-04-01",
+      "name": "[parameters('appInsights')]",
+      "type": "Microsoft.Insights/components",
+      "location": "East US",
+      "dependsOn": [
+        "[concat('Microsoft.Web/sites/', parameters('websiteName'))]"
+      ],
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "properties": {
+        "applicationId": "[parameters('websiteName')]"
+      }
+    },
+    {
+      "comments": "Service Bus Namespace configuration",
+      "apiVersion": "2015-08-01",
+      "kind": "Messaging",
+      "name": "[parameters('serviceBusNamespaceName')]",
+      "type": "Microsoft.ServiceBus/namespaces",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "Standard",
+        "tier": "Standard",
+        "capacity": 1
+      },
+      "properties": {
+        "serviceBusEndpoint": "[concat('https://', parameters('serviceBusNamespaceName'),'.servicebus.windows.net:443/')]",
+        "enabled": true
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      }
+    },
+    {
+      "comments": "AuthorizationRules/CustomerServicePublisher configuration",
+      "type": "Microsoft.ServiceBus/namespaces/AuthorizationRules",
+      "name": "[concat(parameters('serviceBusNamespaceName'), '/', 'CustomerServicePublisher')]",
+      "apiVersion": "2015-08-01",
+      "properties": {
+        "rights": [
+          "Send"
+        ]
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusNamespaceName'))]"
+      ]
+    },
+    {
+      "comments": "AuthorizationRules/CustomerServiceSubscriber configuration",
+      "type": "Microsoft.ServiceBus/namespaces/AuthorizationRules",
+      "name": "[concat(parameters('serviceBusNamespaceName'), '/', 'CustomerServiceSubscriber')]",
+      "apiVersion": "2015-08-01",
+      "properties": {
+        "rights": [
+          "Manage",
+          "Listen",
+          "Send"
+        ]
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusNamespaceName'))]"
+      ]
+    },
+    {
+      "comments": "AuthorizationRules/MerchandisingPublisher configuration",
+      "type": "Microsoft.ServiceBus/namespaces/AuthorizationRules",
+      "name": "[concat(parameters('serviceBusNamespaceName'), '/', 'MerchandisingPublisher')]",
+      "apiVersion": "2015-08-01",
+      "properties": {
+        "rights": [
+          "Manage",
+          "Listen",
+          "Send"
+        ]
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusNamespaceName'))]"
+      ]
+    },
+    {
+      "comments": "AuthorizationRules/CustomerAcquisitionPublisher configuration",
+      "type": "Microsoft.ServiceBus/namespaces/AuthorizationRules",
+      "name": "[concat(parameters('serviceBusNamespaceName'), '/', 'CustomerAcquisitionPublisher')]",
+      "apiVersion": "2015-08-01",
+      "properties": {
+        "rights": [
+          "Send"
+        ]
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusNamespaceName'))]"
+      ]
+    },
+    {
+      "comments": "Service Bus Topic configuration",
+      "type": "Microsoft.ServiceBus/namespaces/topics",
+      "name": "[concat(parameters('serviceBusNamespaceName'), '/', parameters('serviceBusTopicName'))]",
+      "apiVersion": "2015-08-01",
+      "location": "West US",
+      "properties": {
+        "autoDeleteOnIdle": "60.00:00:00",
+        "defaultMessageTimeToLive": "45.00:00:00",
+        "requiresDuplicateDetection": false,
+        "enableBatchedOperations": false,
+        "enablePartitioning": true
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusNamespaceName'))]"
+      ]
+    },
+    {
+      "comments": "Service Bus Topic Subscription configuration",
+      "type": "Microsoft.ServiceBus/namespaces/topics/subscriptions",
+      "name": "[concat(parameters('serviceBusNamespaceName'), '/', parameters('serviceBusTopicName'), '/', parameters('serviceBusTopicSubscriptionName'))]",
+      "apiVersion": "2015-08-01",
+      "location": "West US",
+      "properties": {
+        "maxDeliveryCount": 180,
+        "lockDuration": "00:02:00",
+        "autoDeleteOnIdle": "60.00:00:00",
+        "defaultMessageTimeToLive": "30.00:00:00",
+        "enableBatchedOperations": false,
+        "deadLetteringOnMessageExpiration": true,
+        "deadLetteringOnFilterEvaluationExceptions": true
+      },
+      "tags": {
+        "Environment": "[parameters('Environment')]",
+        "BillTo": "Operations",
+        "DataProfile": "Non Public",
+        "Tier": "Back End",
+        "ServiceContext": ".com"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ServiceBus/namespaces', parameters('serviceBusNamespaceName'))]",
+        "[resourceId('Microsoft.ServiceBus/namespaces/topics', parameters('serviceBusNamespaceName'), parameters('serviceBusTopicName'))]"
+      ]
+    }
+  ],
+  "outputs": {}
+}
